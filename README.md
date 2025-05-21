@@ -58,6 +58,7 @@ pip install paramiko colorama reportlab
   - **JSON Export**: Machine-readable output of all collected data
   - **CSV Export**: Basic export of key metrics
   - (PDF Report generation is a planned feature, currently a placeholder)
+- **Critical Alert Banners**: If the FortiGate is detected to be in Memory Conserve Mode, a prominent banner is displayed at the top of both the console output and the text report for immediate attention.
 - **Concurrency**: Uses `concurrent.futures` for running commands (currently limited to serial execution for prompt stability)
 - **Detailed Logging**: Comprehensive logging to `fortigate_health_check.log`
 - **Argument Parsing**: Flexible command-line arguments using `argparse`
@@ -196,6 +197,11 @@ The script provides output in several formats:
 ### Sample Console Output Snippet
 
 ```
+*****************************************************************
+CRITICAL ALERT: FORTIGATE IS IN MEMORY CONSERVE MODE!
+(Detected via: Performance Status reports: Conserve)
+*****************************************************************
+
 === FortiGate Health Check Report ===
 
 --- System Status (Overall: LOW) ---
@@ -221,6 +227,11 @@ The script provides output in several formats:
 ### Sample Text Report Snippet
 
 ```
+********************************************************************************
+CRITICAL ALERT: FORTIGATE IS IN MEMORY CONSERVE MODE!
+(Detected via: Performance Status reports: Conserve)
+********************************************************************************
+
 === FortiGate Health Check Report ===
 
 --- System Status (Overall: LOW) ---
