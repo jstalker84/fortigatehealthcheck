@@ -1066,108 +1066,256 @@ def generate_text_report(data: Dict[str, Any], filename: str):
             f.write("=" * 80 + "\n")
             f.write(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
 
+            # System Status Section
+            if 'system_status' in data:
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("SYSTEM STATUS\n")
+                f.write("=" * 80 + "\n")
+                system_data = data['system_status']
+                f.write(f"Hostname: {system_data['hostname']}\n")
+                f.write(f"Model: {system_data['model']}\n")
+                f.write(f"Serial Number: {system_data['serial_number']}\n")
+                f.write(f"Firmware Version: {system_data['firmware_version']}\n")
+                f.write(f"System Time: {system_data['system_time']}\n")
+                f.write(f"License Status: {system_data['license_status']}\n\n")
+
+                # Conserve Mode Status
+                if 'conserve_mode' in system_data:
+                    f.write("Conserve Mode Status:\n")
+                    f.write("-" * 40 + "\n")
+                    conserve_data = system_data['conserve_mode']
+                    f.write(f"Status: {conserve_data['status']}\n")
+                    f.write(f"Memory Usage: {conserve_data['memory_usage']}\n")
+                    f.write(f"CPU Usage: {conserve_data['cpu_usage']}\n")
+                    f.write(f"Session Usage: {conserve_data['session_usage']}\n")
+                    if conserve_data['warnings']:
+                        f.write("\nWarnings:\n")
+                        for warning in conserve_data['warnings']:
+                            f.write(f"  - {warning}\n")
+                    f.write("\n")
+
+            # Interface Health Section
+            if 'interface_health' in data:
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("INTERFACE HEALTH\n")
+                f.write("=" * 80 + "\n")
+                interface_data = data['interface_health']
+                
+                # Interface Summary
+                f.write("Interface Summary:\n")
+                f.write("-" * 40 + "\n")
+                summary = interface_data['summary']
+                f.write(f"Total Interfaces: {summary['total_interfaces']}\n")
+                f.write(f"Healthy Interfaces: {summary['healthy_interfaces']}\n")
+                f.write(f"Warning Interfaces: {summary['warning_interfaces']}\n")
+                f.write(f"Error Interfaces: {summary['error_interfaces']}\n\n")
+
+                # Detailed Interface Information
+                f.write("Detailed Interface Information:\n")
+                f.write("-" * 40 + "\n")
+                for name, interface in interface_data['interfaces'].items():
+                    f.write(f"Interface: {name}\n")
+                    f.write(f"Status: {interface['status']}\n")
+                    f.write(f"Health: {interface['health']}\n")
+                    f.write(f"IP Address: {interface.get('ip', 'N/A')}\n")
+                    f.write(f"MAC Address: {interface.get('mac', 'N/A')}\n")
+                    f.write(f"Bandwidth: {interface['bandwidth']}\n")
+                    f.write(f"Duplex: {interface['duplex']}\n")
+                    f.write(f"Speed: {interface['speed']}\n")
+                    f.write(f"Auto-negotiation: {interface['autonegotiation']}\n")
+                    f.write(f"Flow Control: {interface['flow_control']}\n")
+                    
+                    # Error Statistics
+                    f.write("\nError Statistics:\n")
+                    errors = interface['errors']
+                    f.write(f"Total Errors: {errors['total']}\n")
+                    f.write(f"RX Errors: {errors['rx_errors']}\n")
+                    f.write(f"TX Errors: {errors['tx_errors']}\n")
+                    
+                    # Traffic Statistics
+                    f.write("\nTraffic Statistics:\n")
+                    stats = interface['stats']
+                    f.write(f"RX Bytes: {stats['rx_bytes']}\n")
+                    f.write(f"TX Bytes: {stats['tx_bytes']}\n")
+                    f.write(f"RX Packets: {stats['rx_packets']}\n")
+                    f.write(f"TX Packets: {stats['tx_packets']}\n")
+                    
+                    # Warnings
+                    if interface['warnings']:
+                        f.write("\nWarnings:\n")
+                        for warning in interface['warnings']:
+                            f.write(f"  - {warning}\n")
+                    f.write("\n" + "-" * 40 + "\n\n")
+
+            # VPN Status Section
+            if 'vpn_status' in data:
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("VPN STATUS\n")
+                f.write("=" * 80 + "\n")
+                vpn_data = data['vpn_status']
+
+                # SSL VPN Status
+                if 'ssl_vpn' in vpn_data:
+                    f.write("SSL VPN Status:\n")
+                    f.write("-" * 40 + "\n")
+                    ssl_data = vpn_data['ssl_vpn']
+                    f.write(f"Status: {ssl_data['status']}\n")
+                    f.write(f"Port: {ssl_data['port']}\n")
+                    f.write(f"Max Users: {ssl_data['max_users']}\n")
+                    f.write(f"Current Users: {ssl_data['current_users']}\n\n")
+
+                    # SSL VPN Tunnels
+                    if 'tunnels' in ssl_data:
+                        f.write("SSL VPN Tunnels:\n")
+                        for tunnel in ssl_data['tunnels']:
+                            f.write(f"\nTunnel: {tunnel['name']}\n")
+                            f.write(f"Status: {tunnel['status']}\n")
+                            f.write(f"Users: {tunnel['users']}/{tunnel['max_users']}\n")
+                            f.write(f"Port: {tunnel['port']}\n")
+                            f.write(f"Authentication: {tunnel['authentication']}\n")
+                            
+                            if 'client_connections' in tunnel:
+                                f.write("\nClient Connections:\n")
+                                for client in tunnel['client_connections']:
+                                    f.write(f"  User: {client['user']}\n")
+                                    f.write(f"  IP: {client['ip']}\n")
+                                    f.write(f"  Connected Since: {client['connected_since']}\n")
+                                    f.write(f"  Bytes Sent: {client['bytes_sent']}\n")
+                                    f.write(f"  Bytes Received: {client['bytes_received']}\n")
+                            f.write("\n")
+
+                # IPsec Status
+                if 'ipsec' in vpn_data:
+                    f.write("\nIPsec Status:\n")
+                    f.write("-" * 40 + "\n")
+                    ipsec_data = vpn_data['ipsec']
+                    
+                    # IPsec Summary
+                    if 'summary' in ipsec_data:
+                        summary = ipsec_data['summary']
+                        f.write(f"Total Tunnels: {summary['total_tunnels']}\n")
+                        f.write(f"Active Tunnels: {summary['active_tunnels']}\n")
+                        f.write(f"Failed Tunnels: {summary['failed_tunnels']}\n\n")
+
+                    # IPsec Tunnels
+                    if 'tunnels' in ipsec_data:
+                        f.write("IPsec Tunnels:\n")
+                        for tunnel in ipsec_data['tunnels']:
+                            f.write(f"\nTunnel: {tunnel['name']}\n")
+                            f.write(f"Status: {tunnel['status']}\n")
+                            f.write(f"Remote Gateway: {tunnel['remote_gateway']}\n")
+                            f.write(f"Local IP: {tunnel['local_ip']}\n")
+                            f.write(f"Remote IP: {tunnel['remote_ip']}\n")
+                            f.write(f"Encryption: {tunnel['encryption']}\n")
+                            f.write(f"Authentication: {tunnel['authentication']}\n")
+                            
+                            # Phase 1 Status
+                            f.write("\nPhase 1:\n")
+                            phase1 = tunnel['phase1']
+                            f.write(f"  Status: {phase1['status']}\n")
+                            f.write(f"  Established: {phase1['established']}\n")
+                            f.write(f"  Rekey Time: {phase1['rekey_time']}\n")
+                            
+                            # Phase 2 Status
+                            f.write("\nPhase 2:\n")
+                            phase2 = tunnel['phase2']
+                            f.write(f"  Status: {phase2['status']}\n")
+                            f.write(f"  Established: {phase2['established']}\n")
+                            f.write(f"  Rekey Time: {phase2['rekey_time']}\n")
+                            
+                            # Traffic Statistics
+                            f.write("\nTraffic Statistics:\n")
+                            traffic = tunnel['traffic']
+                            f.write(f"  Bytes Sent: {traffic['bytes_sent']}\n")
+                            f.write(f"  Bytes Received: {traffic['bytes_received']}\n")
+                            f.write(f"  Packets Sent: {traffic['packets_sent']}\n")
+                            f.write(f"  Packets Received: {traffic['packets_received']}\n")
+                            f.write("\n")
+
             # System Resources Section
-            if 'memory_usage' in data:
+            if 'system_resources' in data:
                 f.write("\n" + "=" * 80 + "\n")
                 f.write("SYSTEM RESOURCES\n")
                 f.write("=" * 80 + "\n")
-                f.write(f"Data collected at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                resources = data['system_resources']
 
-                # Memory Usage
-                f.write("Memory Usage:\n")
-                f.write("-" * 40 + "\n")
-                memory_data = data['memory_usage']
-                f.write(f"Total Memory: {memory_data['memory']['total']}\n")
-                f.write(f"Used Memory: {memory_data['memory']['used']}\n")
-                f.write(f"Free Memory: {memory_data['memory']['free']}\n")
-                f.write(f"Memory Usage: {memory_data['memory']['usage_percent']:.1f}%\n")
-                f.write(f"Buffer: {memory_data['memory']['buffer']}\n")
-                f.write(f"Cache: {memory_data['memory']['cache']}\n\n")
-
-                # Swap Usage
-                f.write("Swap Usage:\n")
-                f.write("-" * 40 + "\n")
-                f.write(f"Total Swap: {memory_data['swap']['total']}\n")
-                f.write(f"Used Swap: {memory_data['swap']['used']}\n")
-                f.write(f"Free Swap: {memory_data['swap']['free']}\n")
-                f.write(f"Swap Usage: {memory_data['swap']['usage_percent']:.1f}%\n\n")
-
-                # Warnings
-                if memory_data['warnings']:
-                    f.write("Memory Warnings:\n")
-                    for warning in memory_data['warnings']:
-                        f.write(f"  - {warning}\n")
-                    f.write("\n")
-
-            # Disk Usage Section
-            if 'disk_usage' in data:
-                f.write("\nDisk Usage:\n")
-                f.write("-" * 40 + "\n")
-                disk_data = data['disk_usage']
-                for disk in disk_data['disks']:
-                    f.write(f"Filesystem: {disk['filesystem']}\n")
-                    f.write(f"Size: {disk['size']}\n")
-                    f.write(f"Used: {disk['used']}\n")
-                    f.write(f"Available: {disk['available']}\n")
-                    f.write(f"Use%: {disk['use_percent']}%\n")
-                    f.write(f"Mount Point: {disk['mount_point']}\n")
+                # CPU Information
+                if 'cpu' in resources:
+                    f.write("CPU Information:\n")
                     f.write("-" * 40 + "\n")
+                    cpu_data = resources['cpu']
+                    f.write(f"CPU Usage: {cpu_data['usage']}\n")
+                    f.write(f"CPU Cores: {cpu_data['cores']}\n")
+                    f.write(f"Load Average: {', '.join(map(str, cpu_data['load_average']))}\n\n")
 
-                if disk_data['warnings']:
-                    f.write("\nDisk Warnings:\n")
-                    for warning in disk_data['warnings']:
-                        f.write(f"  - {warning}\n")
-                    f.write("\n")
-
-            # Process List Section
-            if 'process_list' in data:
-                f.write("\nProcess List:\n")
-                f.write("-" * 40 + "\n")
-                process_data = data['process_list']
-                f.write(f"Total Processes: {process_data['summary']['total_processes']}\n")
-                f.write(f"High CPU Processes: {process_data['summary']['high_cpu_processes']}\n")
-                f.write(f"High Memory Processes: {process_data['summary']['high_memory_processes']}\n\n")
-
-                f.write("Top Processes:\n")
-                for process in process_data['processes'][:10]:  # Show top 10 processes
-                    f.write(f"PID: {process['pid']}\n")
-                    f.write(f"User: {process['user']}\n")
-                    f.write(f"CPU%: {process['cpu_percent']}\n")
-                    f.write(f"Memory%: {process['memory_percent']}\n")
-                    f.write(f"Command: {process['command']}\n")
-                    f.write("-" * 40 + "\n")
-
-                if process_data['warnings']:
-                    f.write("\nProcess Warnings:\n")
-                    for warning in process_data['warnings']:
-                        f.write(f"  - {warning}\n")
-                    f.write("\n")
-
-            # Security Status Section
-            if any(key in data for key in ['antivirus_status', 'ips_status', 'webfilter_status', 'application_control']):
-                f.write("\n" + "=" * 80 + "\n")
-                f.write("SECURITY STATUS\n")
-                f.write("=" * 80 + "\n")
-                f.write(f"Data collected at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-
-                for check_type in ['antivirus_status', 'ips_status', 'webfilter_status', 'application_control']:
-                    if check_type in data:
-                        f.write(f"{check_type.replace('_', ' ').title()}:\n")
-                        f.write("-" * 40 + "\n")
-                        security_data = data[check_type]
-                        f.write(f"Status: {security_data['status']}\n")
-                        f.write(f"Last Update: {security_data['last_update']}\n")
-                        f.write(f"Version: {security_data['version']}\n")
-                        f.write(f"Signatures: {security_data['signatures']}\n")
-                        
-                        if security_data['warnings']:
-                            f.write("\nWarnings:\n")
-                            for warning in security_data['warnings']:
-                                f.write(f"  - {warning}\n")
+                    # Top Processes
+                    if 'processes' in cpu_data:
+                        f.write("Top Processes:\n")
+                        for process in cpu_data['processes']:
+                            f.write(f"  {process['name']}: CPU {process['cpu_percent']}%, Memory {process['memory_percent']}%\n")
                         f.write("\n")
 
-            # Rest of the report sections...
-            # ... (keep the existing code for other sections)
+                # Memory Information
+                if 'memory' in resources:
+                    f.write("Memory Information:\n")
+                    f.write("-" * 40 + "\n")
+                    memory_data = resources['memory']
+                    f.write(f"Total Memory: {memory_data['total']}\n")
+                    f.write(f"Used Memory: {memory_data['used']}\n")
+                    f.write(f"Free Memory: {memory_data['free']}\n")
+                    f.write(f"Memory Usage: {memory_data['usage_percent']}%\n")
+                    f.write(f"Buffer: {memory_data['buffer']}\n")
+                    f.write(f"Cache: {memory_data['cache']}\n\n")
+
+                # Disk Information
+                if 'disk' in resources:
+                    f.write("Disk Information:\n")
+                    f.write("-" * 40 + "\n")
+                    disk_data = resources['disk']
+                    f.write(f"Total Space: {disk_data['total']}\n")
+                    f.write(f"Used Space: {disk_data['used']}\n")
+                    f.write(f"Free Space: {disk_data['free']}\n")
+                    f.write(f"Usage: {disk_data['usage_percent']}%\n\n")
+
+                # Session Information
+                if 'sessions' in resources:
+                    f.write("Session Information:\n")
+                    f.write("-" * 40 + "\n")
+                    session_data = resources['sessions']
+                    f.write(f"Total Sessions: {session_data['total']}\n")
+                    f.write(f"Used Sessions: {session_data['used']}\n")
+                    f.write(f"Free Sessions: {session_data['free']}\n")
+                    f.write(f"Usage: {session_data['usage_percent']}%\n\n")
+
+            # License Status Section
+            if 'license_status' in data:
+                f.write("\n" + "=" * 80 + "\n")
+                f.write("LICENSE STATUS\n")
+                f.write("=" * 80 + "\n")
+                license_data = data['license_status']
+
+                # License Information
+                if 'licenses' in license_data:
+                    f.write("License Information:\n")
+                    f.write("-" * 40 + "\n")
+                    for name, license_info in license_data['licenses'].items():
+                        f.write(f"\n{name.replace('_', ' ').title()}:\n")
+                        f.write(f"  Status: {license_info['status']}\n")
+                        f.write(f"  Expiration Date: {license_info['expiration_date']}\n")
+                        f.write(f"  Days Remaining: {license_info['days_remaining']}\n")
+                        f.write(f"  Contract Number: {license_info['contract_number']}\n")
+                        f.write(f"  Serial Number: {license_info['serial_number']}\n")
+
+                # FortiGuard Services
+                if 'fortiguard' in license_data:
+                    f.write("\nFortiGuard Services:\n")
+                    f.write("-" * 40 + "\n")
+                    for service, info in license_data['fortiguard']['services'].items():
+                        f.write(f"\n{service.title()}:\n")
+                        f.write(f"  Status: {info['status']}\n")
+                        f.write(f"  Last Update: {info['last_update']}\n")
+                        f.write(f"  Version: {info['version']}\n")
+                        f.write(f"  Signatures: {info['signatures']}\n")
 
         logger.info(f"Text report generated: {filename}")
         return True
