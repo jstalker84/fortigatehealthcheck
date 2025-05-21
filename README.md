@@ -63,7 +63,50 @@ pip install paramiko colorama reportlab
 - **Argument Parsing**: Flexible command-line arguments using `argparse`
 - **Error Handling**: Improved error messages within parsers and connection logic
 
+- **Flexible IP/Hostname Input**:
+  - Multiple target devices (IPs or FQDNs) can be processed in a single run.
+  - IPs/Hostnames can be provided via:
+    - Comma-separated list in `fortigate_config.ini` (e.g., `fortigate = 1.1.1.1, device.example.com, 2.2.2.2`).
+    - Comma-separated list via the `--fortigate` command-line argument.
+    - Interactive prompt: Choose to enter a comma-separated list or specify a path to a text file.
+  - **Text File Input**: Load IPs/Hostnames from a `.txt` file (one entry per line; comments with `#` and empty lines ignored).
+  - **Sample File Generation**: If loading from a non-existent text file, the script offers to create a sample file with formatting instructions.
+  - **Input Validation**: All IP/Hostname inputs are validated for correct syntax (IPv4, IPv6, basic FQDN). Invalid entries are logged and skipped.
+
 ## Usage
+
+### Providing Target FortiGate IPs/Hostnames
+
+There are several ways to specify the FortiGate devices to check:
+
+1.  **Configuration File (`fortigate_config.ini`)**: This is recommended for managing a list of devices.
+    ```ini
+    [Connection]
+    jumphost = your.jumphost.ip_or_hostname  ; Optional
+    jumphost_user = your_jumphost_username    ; Optional
+    fortigate = 192.168.1.10, device1.example.com, 10.0.5.30 ; Comma-separated IPs/Hostnames
+    fortigate_user = admin                    ; Common username for all FortiGates
+    ```
+2.  **Command-Line Argument (`--fortigate`)**:
+    ```bash
+    python fortigate_health_check.py --fortigate "192.168.1.10,device.example.com"
+    ```
+3.  **Interactive Prompt**: If no IPs/Hostnames are found from the config file or CLI, the script will ask:
+    ```
+    How do you want to provide FortiGate IPs/Hostnames?
+    1. Enter comma-separated list
+    2. Load from a text file
+    Enter choice (1 or 2):
+    ```
+    - If you choose `1`, you'll be prompted to type or paste a comma-separated list.
+    - If you choose `2`, you'll be prompted for the path to a text file. If the file doesn't exist, you'll be asked if you want to create a sample file at that path. The script will then exit for you to populate the file.
+      Example `your_ips.txt` content:
+      ```
+      # My FortiGates
+      192.168.1.10
+      device1.example.com
+      # 10.0.5.30  (This one is commented out)
+      ```
 
 ### Configuration File (Recommended)
 
@@ -92,9 +135,9 @@ Use `python fortigate_health_check.py --help` for a full list
 Key arguments:
 - `--jumphost <ip>`: Jumphost IP/Hostname
 - `--jumphost-user <user>`: Jumphost username
-- `--fortigate <ip>`: FortiGate IP/Hostname
-- `--fortigate-user <user>`: FortiGate username
-- `--config <file_path>`: Path to a custom configuration file (default: `fortigate_config.ini`)
+- `--fortigate <ip_or_hostname_list>`: Comma-separated list of FortiGate IPs/Hostnames.
+- `--fortigate-user <user>`: FortiGate username.
+- `--config <file_path>`: Path to a custom configuration file (default: `fortigate_config.ini`).
 - `--save-config`: Save the current connection and settings (from prompts or arguments) to the configuration file
 - `--export-json <filename.json>`: Export results to a JSON file
 - `--export-csv <filename.csv>`: Export results to a CSV file
@@ -105,28 +148,38 @@ Key arguments:
 - `--max-workers <num>`: Maximum concurrent command executions (default set to 1 for stability, see note in features)
 - `--quiet`: Suppress console output (reports will still be generated)
 - `--debug`: Enable debug level logging for more verbose output in the log file
+- `--generate-sample-ip-file`: Standalone command to generate `sample_ip_list.txt` and exit. (Interactive creation is also available as described above).
 
 ### Examples
 
-1. **First-time run with prompts, then save configuration:**
+1. **First-time run, save configuration for multiple devices:**
    ```bash
    python fortigate_health_check.py --save-config
    ```
    (Follow prompts for jumphost (if any) and FortiGate details)
 
-2. **Using a saved configuration and exporting to JSON:**
+2. **Using a saved configuration (with multiple IPs in it) and exporting to JSON:**
    ```bash
-   python fortigate_health_check.py --export-json report.json
+   python fortigate_health_check.py --export-json report_output
+   ```
+   (This will generate `report_output_IP1.json`, `report_output_IP2.json`, etc.)
+
+3. **Direct connection to a list of FortiGates, overriding saved config:**
+   ```bash
+   python fortigate_health_check.py --fortigate "192.168.1.1,192.168.1.2" --fortigate-user admin
    ```
 
-3. **Direct connection to FortiGate, overriding saved config for this run:**
+4. **Connection through jumphost, loading IPs from a text file:**
    ```bash
-   python fortigate_health_check.py --fortigate 192.168.1.1 --fortigate-user admin
+   # First, ensure my_fortigates.txt exists and has IPs/hostnames, one per line.
+   # If not, run and choose option 2 for IP input, then enter path, and script will offer to create it.
+   python fortigate_health_check.py --jumphost 10.0.0.1 --jumphost-user jumpuser --fortigate-user admin
    ```
+   (When prompted for IP input method, choose '2' and provide the path to `my_fortigates.txt`)
 
-4. **Connection through jumphost with text report and debug logging:**
+5. **Generate a sample IP list file directly:**
    ```bash
-   python fortigate_health_check.py --jumphost 10.0.0.1 --jumphost-user jumpuser --fortigate 192.168.1.1 --fortigate-user admin --debug
+   python fortigate_health_check.py --generate-sample-ip-file
    ```
 
 ## Output

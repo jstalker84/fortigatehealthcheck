@@ -17,6 +17,7 @@ from pathlib import Path
 import configparser
 import os
 from enum import Enum
+import ipaddress # Added for IP validation
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
@@ -2020,7 +2021,7 @@ def load_config(config_file: str = 'fortigate_config.ini') -> dict:
     config = {
         'jumphost': None,
         'jumphost_user': None,
-        'fortigate': None,
+        'fortigate': [], # Initialize as empty list
         'fortigate_user': None,
         'max_retries': 3,
         'retry_delay': 5,
@@ -2035,9 +2036,14 @@ def load_config(config_file: str = 'fortigate_config.ini') -> dict:
             config.update({
                 'jumphost': parser['Connection'].get('jumphost'),
                 'jumphost_user': parser['Connection'].get('jumphost_user'),
-                'fortigate': parser['Connection'].get('fortigate'),
                 'fortigate_user': parser['Connection'].get('fortigate_user')
             })
+            fortigate_ips_str = parser['Connection'].get('fortigate')
+            if fortigate_ips_str:
+                raw_ips = [ip.strip() for ip in fortigate_ips_str.split(',') if ip.strip()]
+                config['fortigate'] = [ip for ip in raw_ips if is_valid_ip_or_hostname(ip)]
+                for invalid_ip in set(raw_ips) - set(config['fortigate']):
+                    logger.warning(f"Invalid IP/hostname '{invalid_ip}' found in config file. Skipping.")
         
         if 'Settings' in parser:
             config.update({
@@ -2055,7 +2061,7 @@ def parse_arguments():
     # Connection options
     parser.add_argument('--jumphost', help='Jumphost IP/Hostname')
     parser.add_argument('--jumphost-user', help='Jumphost username')
-    parser.add_argument('--fortigate', help='FortiGate IP/Hostname')
+    parser.add_argument('--fortigate', help='FortiGate IP/Hostname(s), comma-separated for multiple')
     parser.add_argument('--fortigate-user', help='FortiGate username')
     
     # Export options
@@ -2074,6 +2080,7 @@ def parse_arguments():
     parser.add_argument('--max-workers', type=int, help='Maximum concurrent command executions')
     parser.add_argument('--quiet', action='store_true', help='Suppress console output')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    parser.add_argument('--generate-sample-ip-file', action='store_true', help='Generate a sample IP list file and exit')
     
     args = parser.parse_args()
     
@@ -2082,9 +2089,22 @@ def parse_arguments():
     
     # Override config with command line arguments
     for key, value in vars(args).items():
-        if value is not None and key != 'config' and key != 'save_config':
-            config[key] = value
+        if value is not None and key != 'config' and key != 'save_config' and key != 'generate_sample_ip_file':
+            if key == 'fortigate': # Special handling for fortigate IPs
+                raw_ips = [ip.strip() for ip in value.split(',') if ip.strip()]
+                config[key] = [ip for ip in raw_ips if is_valid_ip_or_hostname(ip)]
+                for invalid_ip in set(raw_ips) - set(config[key]):
+                    logger.warning(f"Invalid IP/hostname '{invalid_ip}' from command line. Skipping.")
+            else:
+                config[key] = value
     
+    # Ensure config['fortigate'] is a list, even if loaded as None initially and not overridden by args
+    if not isinstance(config.get('fortigate'), list):
+        if config.get('fortigate'): # If it was a single string from old config or bad manual edit
+            config['fortigate'] = [ip.strip() for ip in str(config['fortigate']).split(',') if ip.strip()]
+        else:
+            config['fortigate'] = []
+            
     return args, config
 
 def save_config(config: dict, config_file: str = 'fortigate_config.ini'):
@@ -2092,11 +2112,12 @@ def save_config(config: dict, config_file: str = 'fortigate_config.ini'):
     parser = configparser.ConfigParser()
     
     # Connection settings
+    fortigate_ips_str = ",".join(config.get('fortigate', [])) if isinstance(config.get('fortigate'), list) else config.get('fortigate', '')
     parser['Connection'] = {
-        'jumphost': config.get('jumphost', ''),
-        'jumphost_user': config.get('jumphost_user', ''),
-        'fortigate': config.get('fortigate', ''),
-        'fortigate_user': config.get('fortigate_user', '')
+        'jumphost': config.get('jumphost', '') or '', # Ensure empty string if None
+        'jumphost_user': config.get('jumphost_user', '') or '',
+        'fortigate': fortigate_ips_str,
+        'fortigate_user': config.get('fortigate_user', '') or ''
     }
     
     # General settings
@@ -2110,6 +2131,74 @@ def save_config(config: dict, config_file: str = 'fortigate_config.ini'):
         parser.write(f)
     logger.info(f"Configuration saved to {config_file}")
 
+def load_ips_from_text_file(filepath: str) -> List[str]:
+    """Load IP addresses from a text file (one IP per line, ignores comments and empty lines)."""
+    ips = []
+    validated_ips = []
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            for line_num, line in enumerate(f, 1):
+                entry = line.strip()
+                if entry and not entry.startswith('#'):
+                    if is_valid_ip_or_hostname(entry):
+                        validated_ips.append(entry)
+                    else:
+                        logger.warning(f"Invalid IP/hostname '{entry}' found in {filepath} at line {line_num}. Skipping.")
+        if not validated_ips:
+            logger.warning(f"No valid IPs/hostnames found in file: {filepath}")
+        else:
+            logger.info(f"Loaded {len(validated_ips)} valid IPs/hostnames from {filepath}")
+    except FileNotFoundError:
+        # This case will be handled by the new interactive prompt in main()
+        # logger.error(f"IP list file not found: {filepath}") 
+        pass # Return empty list, main will prompt to create it
+    except Exception as e:
+        logger.error(f"Error reading IP list file {filepath}: {str(e)}")
+    return validated_ips
+
+def create_sample_ip_file(filepath: str) -> bool:
+    """Creates a sample IP list file at the given path."""
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write("# FortiGate IP Address List\n")
+            f.write("# Enter one IP address or hostname per line.\n")
+            f.write("# Lines starting with # are comments and will be ignored.\n")
+            f.write("# Empty lines are also ignored.\n")
+            f.write("\n")
+            f.write("# Example entries (replace with your actual IPs/hostnames):\n")
+            f.write("# 192.168.1.1\n")
+            f.write("# 10.0.0.5\n")
+            f.write("# your-fortigate.example.com\n")
+            f.write("# 2001:db8:85a3::8a2e:370:7334\n")
+        logger.info(f"Sample IP list file '{filepath}' created successfully. Please edit it with your IPs/hostnames and then re-run the script to load them.")
+        return True
+    except Exception as e:
+        logger.error(f"Could not create sample IP list file '{filepath}': {str(e)}")
+        return False
+
+def is_valid_ip_or_hostname(entry: str) -> bool:
+    """Validate if the entry is a valid IP address (v4 or v6) or a plausible hostname."""
+    if not entry:
+        return False
+    try:
+        ipaddress.ip_address(entry) # Validates IPv4 and IPv6
+        return True
+    except ValueError:
+        # Not a valid IP address, check if it's a plausible hostname
+        # RFC 1035, but simplified: allows letters, numbers, hyphens, and dots.
+        # Must not start or end with a hyphen or dot.
+        # Segments (between dots) must not be empty and must not start/end with hyphen.
+        if len(entry) > 255:
+            return False # Too long for a hostname
+        if entry.startswith(".") or entry.endswith(".") or entry.startswith("-") or entry.endswith("-"):
+            return False
+        # Regex for basic hostname structure (simplified)
+        # Allows for internationalized domain names (IDN) by not being too strict on characters
+        hostname_pattern = re.compile(r"^([a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$")
+        if hostname_pattern.match(entry):
+            return True
+    return False
+
 def generate_pdf_report(data: Dict[str, Any], filename: str, fortigate_ip: str):
     """Generate a PDF report from health check data."""
     # Placeholder: Implementation for PDF generation is needed.
@@ -2122,104 +2211,185 @@ def generate_pdf_report(data: Dict[str, Any], filename: str, fortigate_ip: str):
 def main():
     args, config = parse_arguments()
     
-    # Set up logging level
     if args.debug:
         logger.setLevel(logging.DEBUG)
-    
-    health_checker = FortiGateHealthCheck(
-        max_retries=config['max_retries'],
-        retry_delay=config['retry_delay']
-    )
-    
+
+    # --generate-sample-ip-file is handled by parse_arguments if called alone and exits.
+    # If combined with other args, its presence is noted by args.generate_sample_ip_file but primary logic proceeds.
+    # We make the sample file generation interactive if chosen during IP input phase.
+
+    jumphost_ip = config.get('jumphost')
+    jumphost_user = config.get('jumphost_user')
+    fortigate_ips = config.get('fortigate', []) # Already validated if from config/CLI
+    fortigate_user = config.get('fortigate_user')
+
+    if not fortigate_ips:
+        while True:
+            ip_input_method = input("How do you want to provide FortiGate IPs/Hostnames?\n1. Enter comma-separated list\n2. Load from a text file\nEnter choice (1 or 2): ").strip()
+            if ip_input_method == '1':
+                fortigate_ips_str = input("Enter FortiGate IP(s)/Hostname(s) (comma-separated for multiple): ")
+                if fortigate_ips_str:
+                    raw_ips = [ip.strip() for ip in fortigate_ips_str.split(',') if ip.strip()]
+                    fortigate_ips = [ip for ip in raw_ips if is_valid_ip_or_hostname(ip)]
+                    for invalid_ip in set(raw_ips) - set(fortigate_ips):
+                        logger.warning(f"Invalid IP/hostname '{invalid_ip}' entered interactively. Skipping.")
+                break
+            elif ip_input_method == '2':
+                ip_file_path = input("Enter the path to the text file containing IPs/Hostnames: ").strip()
+                if ip_file_path:
+                    loaded_ips = load_ips_from_text_file(ip_file_path) # Already validates internally
+                    if not loaded_ips and not os.path.exists(ip_file_path):
+                        create_choice = input(f"File '{ip_file_path}' not found. Create a sample file here? (yes/no): ").lower()
+                        if create_choice in ['yes', 'y']:
+                            if create_sample_ip_file(ip_file_path):
+                                logger.info("Please edit the sample file and then re-run the script.")
+                            return # Exit for user to edit the file
+                        else:
+                            logger.info("Skipping IP loading from file.")
+                    fortigate_ips = loaded_ips
+                break
+            else:
+                print("Invalid choice. Please enter 1 or 2.")
+        
+        if not fortigate_ips:
+            logger.error("No valid FortiGate IPs/Hostnames provided or loaded. Exiting...")
+            return
+
+    # Single jumphost client for all FortiGate connections if jumphost is used
+    shared_jumphost_client = None
+    jumphost_connected = False
+
     try:
-        # If jumphost is specified in config or args, use it
-        use_jumphost = bool(config['jumphost'])
-        
-        # If no jumphost specified, ask the user
-        if not use_jumphost:
-            jumphost_response = input("Do you need to connect through a jumphost? (yes/no): ").lower()
-            use_jumphost = jumphost_response in ['yes', 'y']
-        
+        use_jumphost = bool(jumphost_ip)
+        if not use_jumphost and any(fortigate_ips):
+             # If IPs are provided but no jumphost, ask if one is needed ONLY IF not directly connecting to all
+            if not config.get('direct_connection_preferred', False): # Assuming you might add such a config later
+                jumphost_response = input("Do you need to connect through a jumphost for these IPs? (yes/no): ").lower()
+                use_jumphost = jumphost_response in ['yes', 'y']
+
         if use_jumphost:
-            # Get jumphost details from config or prompt
-            jumphost_ip = config['jumphost'] or input("Enter Jumphost IP/Hostname: ")
-            jumphost_user = config['jumphost_user'] or input("Enter Jumphost Username: ")
+            if not jumphost_ip:
+                jumphost_ip = input("Enter Jumphost IP/Hostname: ")
+            if not jumphost_user:
+                jumphost_user = input(f"Enter Jumphost Username for {jumphost_ip}: ")
             jumphost_password = getpass.getpass(f"Enter Password for {jumphost_user}@{jumphost_ip}: ")
+            verification_code = input("Enter jumphost verification code (if required, press Enter to skip): ") or None
             
-            # Prompt for verification code
-            verification_code = input("Enter verification code (if required, press Enter to skip): ")
-            if not verification_code:
-                verification_code = None
-            
-            # Connect to jumphost
-            if not health_checker.connect_with_retry(
-                health_checker.connect_to_jumphost,
+            # Create a temporary health_checker to use its connect_to_jumphost method
+            temp_health_checker_for_jumphost = FortiGateHealthCheck(
+                max_retries=config['max_retries'], 
+                retry_delay=config['retry_delay']
+            )
+            if temp_health_checker_for_jumphost.connect_with_retry(
+                temp_health_checker_for_jumphost.connect_to_jumphost,
                 jumphost_ip, jumphost_user, jumphost_password, verification_code
             ):
+                shared_jumphost_client = temp_health_checker_for_jumphost.jumphost_client
+                jumphost_connected = True
+            else:
                 logger.error("Failed to connect to jumphost. Exiting...")
                 return
+        
+        # Common FortiGate user for all targets, if provided
+        if not fortigate_user and any(fortigate_ips):
+            fortigate_user = input(f"Enter FortiGate Username (this will be used for all target FortiGates): ")
+
+        for fortigate_ip in fortigate_ips:
+            logger.info(f"Processing FortiGate: {fortigate_ip} ===")
             
-            # Get FortiGate details
-            fortigate_ip = config['fortigate'] or input("Enter FortiGate IP: ")
-            fortigate_user = config['fortigate_user'] or input(f"Enter FortiGate Username for {fortigate_ip}: ")
-            fortigate_password = getpass.getpass(f"Enter FortiGate Password for {fortigate_user}@{fortigate_ip}: ")
-            
-            # Connect to FortiGate through jumphost
-            if not health_checker.connect_with_retry(
-                health_checker.connect_to_fortigate,
-                fortigate_ip, fortigate_user, fortigate_password
-            ):
-                logger.error("Failed to connect to FortiGate. Exiting...")
-                return
-        else:
-            # Get FortiGate details for direct connection
-            fortigate_ip = config['fortigate'] or input("Enter FortiGate IP: ")
-            fortigate_user = config['fortigate_user'] or input(f"Enter FortiGate Username for {fortigate_ip}: ")
-            fortigate_password = getpass.getpass(f"Enter FortiGate Password for {fortigate_user}@{fortigate_ip}: ")
-            
-            # Connect directly to FortiGate
-            if not health_checker.connect_with_retry(
-                health_checker.connect_direct_to_fortigate,
-                fortigate_ip, fortigate_user, fortigate_password
-            ):
-                logger.error("Failed to connect to FortiGate. Exiting...")
-                return
-        
-        # Setup FortiGate session
-        if not health_checker.setup_fortigate_session():
-            logger.error("Failed to setup FortiGate session. Exiting...")
-            return
-        
-        # Run health check
-        health_data = health_checker.run_health_check()
-        
-        # Display results if not in quiet mode
-        if not args.quiet:
-            print_colored_output(health_data)
-        
-        # Generate text report
-        report_filename = f"fortigate_health_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        if generate_text_report(health_data, report_filename):
-            print(f"\nText report generated: {report_filename}")
-        else:
-            print("\nFailed to generate text report")
-        
-        # Export results if requested
-        if args.export_json:
-            health_checker.export_to_json(health_data, args.export_json)
-        if args.export_csv:
-            health_checker.export_to_csv(health_data, args.export_csv)
-        
-        # Save configuration if requested
+            # Create a new health_checker instance for each FortiGate IP
+            health_checker = FortiGateHealthCheck(
+                max_retries=config['max_retries'],
+                retry_delay=config['retry_delay']
+            )
+
+            try:
+                if use_jumphost and jumphost_connected and shared_jumphost_client:
+                    health_checker.jumphost_client = shared_jumphost_client # Use the shared client
+                    # The connect_to_fortigate method will use this existing client
+                    current_fortigate_password = getpass.getpass(f"Enter FortiGate Password for {fortigate_user}@{fortigate_ip} (via jumphost): ")
+                    if not health_checker.connect_with_retry(
+                        health_checker.connect_to_fortigate, # This method uses the assigned jumphost_client
+                        fortigate_ip, fortigate_user, current_fortigate_password
+                    ):
+                        logger.error(f"Failed to connect to FortiGate {fortigate_ip} via jumphost. Skipping...")
+                        continue
+                elif not use_jumphost:
+                    current_fortigate_password = getpass.getpass(f"Enter FortiGate Password for {fortigate_user}@{fortigate_ip} (direct): ")
+                    if not health_checker.connect_with_retry(
+                        health_checker.connect_direct_to_fortigate,
+                        fortigate_ip, fortigate_user, current_fortigate_password
+                    ):
+                        logger.error(f"Failed to connect directly to FortiGate {fortigate_ip}. Skipping...")
+                        continue
+                else: # Jumphost was intended but connection failed
+                    logger.error(f"Jumphost connection not available for FortiGate {fortigate_ip}. Skipping...")
+                    continue
+
+                if not health_checker.setup_fortigate_session():
+                    logger.error(f"Failed to setup FortiGate session for {fortigate_ip}. Skipping...")
+                    continue
+                
+                health_data = health_checker.run_health_check()
+                
+                if not args.quiet:
+                    print(f"\n{Fore.BLUE}--- Health Check Results for {fortigate_ip} ---{Style.RESET_ALL}")
+                    print_colored_output(health_data)
+                
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                report_filename_base = f"fortigate_health_report_{fortigate_ip.replace('.', '_')}_{timestamp}"
+                
+                text_report_filename = f"{report_filename_base}.txt"
+                if generate_text_report(health_data, text_report_filename):
+                    print(f"\nText report for {fortigate_ip} generated: {text_report_filename}")
+                else:
+                    print(f"\nFailed to generate text report for {fortigate_ip}")
+                
+                if args.export_json:
+                    json_filename = f"{args.export_json.rsplit('.',1)[0]}_{fortigate_ip.replace('.', '_')}.json" if '.json' in args.export_json else f"{args.export_json}_{fortigate_ip.replace('.', '_')}.json"
+                    health_checker.export_to_json(health_data, json_filename)
+                if args.export_csv:
+                    csv_filename = f"{args.export_csv.rsplit('.',1)[0]}_{fortigate_ip.replace('.', '_')}.csv" if '.csv' in args.export_csv else f"{args.export_csv}_{fortigate_ip.replace('.', '_')}.csv"
+                    health_checker.export_to_csv(health_data, csv_filename)
+                
+                # PDF report generation would also use fortigate_ip in filename
+                if not args.no_pdf:
+                    pdf_dir = args.pdf_dir or "."
+                    Path(pdf_dir).mkdir(parents=True, exist_ok=True)
+                    pdf_filename = Path(pdf_dir) / f"{report_filename_base}.pdf"
+                    generate_pdf_report(health_data, str(pdf_filename), fortigate_ip)
+
+            except Exception as e_ip:
+                logger.error(f"An error occurred while processing FortiGate {fortigate_ip}: {str(e_ip)}")
+            finally:
+                if health_checker and not use_jumphost: # If direct, close its specific connection
+                     health_checker.close_connections()
+                elif health_checker and use_jumphost: # If via jumphost, only close the shell, not the shared client
+                    if health_checker.fortigate_shell:
+                        health_checker.fortigate_shell.close()
+                        health_checker.fortigate_shell = None
+                    # The shared_jumphost_client is closed after the loop
+
+        # Save configuration if requested, after all IPs processed
         if args.save_config:
+            # Ensure config dictionary has the latest IPs used if they were prompted
+            if fortigate_ips: config['fortigate'] = fortigate_ips
+            if jumphost_ip: config['jumphost'] = jumphost_ip
+            if jumphost_user: config['jumphost_user'] = jumphost_user
+            if fortigate_user: config['fortigate_user'] = fortigate_user
             save_config(config, args.config)
     
     except KeyboardInterrupt:
-        logger.info("Health check interrupted by user")
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {str(e)}")
+        logger.info("Health check process interrupted by user")
+    except Exception as e_main:
+        logger.error(f"An unexpected error occurred in the main process: {str(e_main)}")
     finally:
-        health_checker.close_connections()
+        if shared_jumphost_client and jumphost_connected: # Close the shared jumphost client at the very end
+            logger.info("Closing shared jumphost connection.")
+            shared_jumphost_client.close()
+        elif not use_jumphost: # If no jumphost was used at all.
+            pass # Individual connections were closed in the loop
+        logger.info("FortiGate health check process finished.")
 
 if __name__ == "__main__":
     main() 
