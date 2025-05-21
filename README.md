@@ -64,50 +64,80 @@ pip install paramiko colorama reportlab
 - **Argument Parsing**: Flexible command-line arguments using `argparse`
 - **Error Handling**: Improved error messages within parsers and connection logic
 
-- **Flexible IP/Hostname Input**:
+- **Configuration File (`fortigate_config.ini`)**: Supports an INI file for persistent storage of general script settings (like jumphost details, default FortiGate user, retry parameters) and can *optionally* contain a list of target FortiGate IPs/hostnames.
+- **Flexible IP/Hostname Input Methods**:
   - Multiple target devices (IPs or FQDNs) can be processed in a single run.
-  - IPs/Hostnames can be provided via:
-    - Comma-separated list in `fortigate_config.ini` (e.g., `fortigate = 1.1.1.1, device.example.com, 2.2.2.2`).
-    - Comma-separated list via the `--fortigate` command-line argument.
-    - Interactive prompt: Choose to enter a comma-separated list or specify a path to a text file.
-  - **Text File Input**: Load IPs/Hostnames from a `.txt` file (one entry per line; comments with `#` and empty lines ignored).
-  - **Sample File Generation**: If loading from a non-existent text file, the script offers to create a sample file with formatting instructions.
-  - **Input Validation**: All IP/Hostname inputs are validated for correct syntax (IPv4, IPv6, basic FQDN). Invalid entries are logged and skipped.
+  - Target IPs/Hostnames are determined with the following precedence:
+    1.  **Command-Line**: Directly via the `--fortigate` argument (comma-separated).
+    2.  **INI Configuration File**: From the `fortigate` key in `fortigate_config.ini` (if not overridden by CLI).
+    3.  **Interactive Prompt (Fallback)**: If no IPs are provided by the above, choose to:
+        -   Enter a comma-separated list directly.
+        -   Load from a simple text file (`.txt`) with one IP/Hostname per line.
+- **Sample IP File Generation**: If opting to load IPs from a text file and it doesn't exist, the script offers to create a sample file (e.g., `your_ips.txt`) with formatting instructions. The script then exits for you to populate this file.
+- **Input Validation**: All IP/Hostname inputs (from any method) are validated for correct syntax (IPv4, IPv6, basic FQDN). Invalid entries are logged and skipped.
+- **Critical Alert Banners**: If the FortiGate is detected to be in Memory Conserve Mode, a prominent banner is displayed at the top of both the console output and the text report for immediate attention.
 
 ## Usage
 
+### Configuration File (`fortigate_config.ini`)
+
+The script uses an INI file (default: `fortigate_config.ini`) for storing common settings. This file can define:
+- Jumphost IP/Hostname and username.
+- A common FortiGate username to be used for all targets.
+- Script behavior like connection retries and delays.
+- **Optionally**: A comma-separated list of FortiGate IPs/hostnames for the `fortigate` key under the `[Connection]` section.
+
+**Example `fortigate_config.ini`:**
+```ini
+[Connection]
+jumphost = your.jumphost.ip
+jumphost_user = jumpadmin
+fortigate = 192.168.1.10, fw.example.com ; This line is one way to list targets
+fortigate_user = fg_admin
+
+[Settings]
+max_retries = 3
+retry_delay = 5
+```
+- To save your current command-line settings or prompted inputs to this file, use the `--save-config` argument.
+- To use a different INI file, use `--config /path/to/your_custom_config.ini`.
+
 ### Providing Target FortiGate IPs/Hostnames
 
-There are several ways to specify the FortiGate devices to check:
+The script determines the target FortiGate devices to check using the following order of precedence:
 
-1.  **Configuration File (`fortigate_config.ini`)**: This is recommended for managing a list of devices.
-    ```ini
-    [Connection]
-    jumphost = your.jumphost.ip_or_hostname  ; Optional
-    jumphost_user = your_jumphost_username    ; Optional
-    fortigate = 192.168.1.10, device1.example.com, 10.0.5.30 ; Comma-separated IPs/Hostnames
-    fortigate_user = admin                    ; Common username for all FortiGates
-    ```
-2.  **Command-Line Argument (`--fortigate`)**:
+1.  **Command-Line Argument (`--fortigate`)**: This is the highest priority. If used, it overrides any IP list in the INI file.
     ```bash
-    python fortigate_health_check.py --fortigate "192.168.1.10,device.example.com"
+    python fortigate_health_check.py --fortigate "192.168.1.10,device.example.com,10.0.0.1"
     ```
-3.  **Interactive Prompt**: If no IPs/Hostnames are found from the config file or CLI, the script will ask:
+
+2.  **INI Configuration File (`fortigate` key)**: If the `--fortigate` argument is *not* used, the script looks for a `fortigate` key in the `[Connection]` section of your active INI file (e.g., `fortigate_config.ini`). The value should be a comma-separated list of IPs/hostnames.
+    *(See INI example in the section above)*
+
+3.  **Interactive Prompt (Fallback Method)**: If no IPs/Hostnames are specified via the command line OR in the INI file, the script will then prompt you:
     ```
     How do you want to provide FortiGate IPs/Hostnames?
     1. Enter comma-separated list
     2. Load from a text file
     Enter choice (1 or 2):
     ```
-    - If you choose `1`, you'll be prompted to type or paste a comma-separated list.
-    - If you choose `2`, you'll be prompted for the path to a text file. If the file doesn't exist, you'll be asked if you want to create a sample file at that path. The script will then exit for you to populate the file.
-      Example `your_ips.txt` content:
-      ```
-      # My FortiGates
-      192.168.1.10
-      device1.example.com
-      # 10.0.5.30  (This one is commented out)
-      ```
+    -   **Choice 1 (Comma-separated list)**: You'll be prompted to type or paste a comma-separated list of IPs/Hostnames directly into the console. These will be validated.
+    -   **Choice 2 (Load from a separate text file)**: 
+        -   You'll be asked for the path to a simple text file (e.g., `my_devices.txt`).
+        -   This `.txt` file should contain one IP address or FQDN per line.
+        -   Lines starting with `#` are comments; empty lines are ignored. All entries are validated.
+        -   **Automatic Sample File Creation**: If you provide a path to a `.txt` file that *does not exist*, the script will ask:
+            `File 'my_devices.txt' not found. Create a sample file here? (yes/no):`
+            If you answer `yes`, the script will create `my_devices.txt` with example formatting and instructions, then exit. You can then edit this file with your actual IPs/hostnames and re-run the health check script.
+
+        **Example `my_devices.txt` content:**
+        ```txt
+        # List of FortiGates for health check
+        192.168.1.10
+        fw-branch.example.com
+        # 10.0.5.30  (This one is currently commented out)
+        2001:db8::100
+        ```
 
 ### Configuration File (Recommended)
 
