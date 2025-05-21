@@ -1798,8 +1798,46 @@ class FortiGateHealthCheck:
 
 def print_colored_output(data: Dict[str, Any]):
     """Print health check data with color coding based on severity."""
-    print(f"\n{Fore.CYAN}=== FortiGate Health Check Report ==={Style.RESET_ALL}")
+    
+    # Check for conserve mode to display a top-level banner
+    conserve_mode_active = False
+    conserve_mode_source = ""
 
+    perf_status = data.get('performance_status', {})
+    if isinstance(perf_status, dict):
+        parsed_perf_metrics = perf_status.get('parsed_metrics', {})
+        conserve_mode_value = parsed_perf_metrics.get('conserve_mode') # From 'get system performance status'
+        if conserve_mode_value and conserve_mode_value.lower() in ["conserve", "extreme conserve"]:
+            conserve_mode_active = True
+            conserve_mode_source = f"Performance Status reports: {conserve_mode_value}"
+
+    if not conserve_mode_active:
+        sys_status = data.get('system_status', {})
+        if isinstance(sys_status, dict):
+            parsed_sys_metrics = sys_status.get('parsed_metrics', {})
+            # Check the specific finding for conserve mode from system_status parser
+            if parsed_sys_metrics.get('conserve_mode_status', "").lower() == "active":
+                 conserve_mode_active = True
+                 conserve_mode_source = "System Status reports: Active"
+            else: # Fallback check on raw output of system_status as well, if specific finding not present
+                findings = sys_status.get('findings', [])
+                for finding in findings:
+                    if isinstance(finding, dict) and finding.get('description', "").lower() == "conserve mode" and finding.get('value', "").lower() == "active":
+                        conserve_mode_active = True
+                        conserve_mode_source = "System Status (finding) reports: Active"
+                        break
+
+    if conserve_mode_active:
+        banner_message = "CRITICAL ALERT: FORTIGATE IS IN MEMORY CONSERVE MODE!"
+        details_message = f"(Detected via: {conserve_mode_source})"
+        print(f"{Fore.RED}{Style.BRIGHT}{'='*len(banner_message)}{Style.RESET_ALL}")
+        print(f"{Fore.RED}{Style.BRIGHT}{banner_message}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}{Style.BRIGHT}{details_message}{Style.RESET_ALL}")
+        print(f"{Fore.RED}{Style.BRIGHT}{'='*len(banner_message)}{Style.RESET_ALL}")
+        print("\n") # Add a blank line for separation
+
+    print(f"{Fore.CYAN}=== FortiGate Health Check Report ==={Style.RESET_ALL}")
+    
     # Sort data to have 'system_status' first, then others alphabetically
     sorted_check_names = sorted(data.keys(), key=lambda x: (x != 'system_status', x))
 
@@ -1879,6 +1917,41 @@ def generate_text_report(data: Dict[str, Any], filename: str):
     """Generate a text report from health check data."""
     try:
         with open(filename, 'w', encoding='utf-8') as f:
+            # Check for conserve mode to display a top-level banner
+            conserve_mode_active = False
+            conserve_mode_source = ""
+
+            perf_status = data.get('performance_status', {})
+            if isinstance(perf_status, dict):
+                parsed_perf_metrics = perf_status.get('parsed_metrics', {})
+                conserve_mode_value = parsed_perf_metrics.get('conserve_mode')
+                if conserve_mode_value and conserve_mode_value.lower() in ["conserve", "extreme conserve"]:
+                    conserve_mode_active = True
+                    conserve_mode_source = f"Performance Status reports: {conserve_mode_value}"
+
+            if not conserve_mode_active:
+                sys_status = data.get('system_status', {})
+                if isinstance(sys_status, dict):
+                    parsed_sys_metrics = sys_status.get('parsed_metrics', {})
+                    if parsed_sys_metrics.get('conserve_mode_status', "").lower() == "active":
+                        conserve_mode_active = True
+                        conserve_mode_source = "System Status reports: Active"
+                    else:
+                        findings = sys_status.get('findings', [])
+                        for finding in findings:
+                            if isinstance(finding, dict) and finding.get('description', "").lower() == "conserve mode" and finding.get('value', "").lower() == "active":
+                                conserve_mode_active = True
+                                conserve_mode_source = "System Status (finding) reports: Active"
+                                break
+            
+            if conserve_mode_active:
+                banner_message = "CRITICAL ALERT: FORTIGATE IS IN MEMORY CONSERVE MODE!"
+                details_message = f"(Detected via: {conserve_mode_source})"
+                f.write("********************************************************************************\n")
+                f.write(f"{banner_message}\n")
+                f.write(f"{details_message}\n")
+                f.write("********************************************************************************\n\n")
+
             f.write("=" * 80 + "\n")
             f.write("FortiGate Health Check Report\n")
             f.write("=" * 80 + "\n")
