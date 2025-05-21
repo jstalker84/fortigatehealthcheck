@@ -1,3 +1,0 @@
-paramiko>=3.4.0
-getpass4>=1.0.0
-colorama>=0.4.6 
